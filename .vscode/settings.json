@@ -1,0 +1,17 @@
+{
+  "python.defaultInterpreterPath": "venv/bin/python",
+  "editor.formatOnSave": true,
+  "python.analysis.typeCheckingMode": "off",
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.autopep8"
+  },
+  "[markdown]": {
+    "editor.formatOnSave": false
+  },
+  "cSpell.words": [
+    "historicals",
+    "PLTR",
+    "RKLB",
+    "TSLA"
+  ]
+}
