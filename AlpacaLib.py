@@ -289,7 +289,8 @@ def get_stock_historicals(symbols: List[str], start_date: Optional[str] = None, 
 def get_crypto_historicals(symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v1beta3/crypto/us/bars'
     params = {
-        'symbols': ','.join(['%s/USD' % i.upper() for i in symbols]),
+        'symbols': ','.join([i.upper() for i in symbols]),
+        # 'symbols': ','.join(['%s/USD' % i.upper() for i in symbols]),
         'timeframe': resolution,
     }
     if start_date is not None:
