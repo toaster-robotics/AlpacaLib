@@ -305,7 +305,7 @@ def get_crypto_historicals(symbols: List[str], start_date: Optional[str] = None,
 
     response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
     df = process_bars(response)
-    df['symbol'] = df['symbol'].str.replace('/USD', '')
+    # df['symbol'] = df['symbol'].str.replace('/USD', '')
     return df.set_index(['date', 'symbol'])
 
 
