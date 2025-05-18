@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="AlpacaLib",
-    version="0.1.3",
+    version="0.1.4",
     author="Jason",
     author_email="",
     description="Alpaca Data API",

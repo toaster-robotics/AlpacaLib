@@ -329,5 +329,23 @@ def get_historicals(stock_symbols: List[str], crypto_symbols: List[str], start_d
     return df
 
 
+def asset_info(symbol: str) -> dict:
+    endpoint = '/v2/assets/%s' % symbol.upper()
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = requests.get(BASE_TRADE_URL + endpoint, headers=headers)
+    data = response.json()
+    return data
+
+
 if __name__ == '__main__':
-    df = get_activities()
+    # df = get_activities()
+    print(asset_info('MSTY1'))
+    print(asset_info('MSTY'))
+    # stock_symbol_check('AAPL')
+    # stock_symbol_check('AAPL')
+    # stock_symbol_check('AAPL')
