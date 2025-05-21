@@ -3,9 +3,11 @@ import pandas as pd
 import time
 from dotenv import load_dotenv
 import os
-from typing import Optional, List, TypedDict
+from typing import Optional, List, TypedDict, Union
 load_dotenv()
 
+API_KEY = os.getenv('ALPACA_KEY')
+SECRET_KEY = os.getenv('ALPACA_SECRET')
 
 BASE_TRADE_URL = 'https://api.alpaca.markets'
 BASE_DATA_URL = 'https://data.alpaca.markets'
@@ -26,10 +28,6 @@ class Account(TypedDict):
     maintenance_margin: float
 
 
-API_KEY = os.getenv('ALPACA_KEY')
-SECRET_KEY = os.getenv('ALPACA_SECRET')
-
-
 def fetch_url(url: str, params: Optional[dict] = None, headers: Optional[dict] = None, max_retries: int = 3, sleep: float = 2):
     attempts = 0
     while attempts < max_retries:
@@ -38,6 +36,10 @@ def fetch_url(url: str, params: Optional[dict] = None, headers: Optional[dict] =
             response.raise_for_status()
             return response
         except requests.RequestException as e:
+            if e.response is not None:
+                data = response.json()
+                message = data['message']
+                raise RuntimeError(f'[FETCH URL FAILED] {message}')
             attempts += 1
             if attempts < max_retries:
                 time.sleep(sleep)
@@ -73,24 +75,7 @@ def get_account() -> Account:
     return account
 
 
-def get_portfolio_history():
-    endpoint = '/v2/account/portfolio/history'
-    params = {
-    }
-    headers = {
-        'Accept': 'application/json',
-        'APCA-API-KEY-ID': API_KEY,
-        'APCA-API-SECRET-KEY': SECRET_KEY,
-
-    }
-    response = fetch_url(BASE_TRADE_URL + endpoint, params, headers)
-    data = response.json()
-    df = pd.DataFrame(data)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s').dt.date
-    print(df)
-
-
-def get_activities(after: Optional[str] = None) -> pd.DataFrame:
+def get_activities(after: Optional[Union[pd.Timestamp, str]] = None) -> pd.DataFrame:
     def fix_time(df: pd.DataFrame):
         # Assume df already has these:
         df['transaction_time'] = pd.to_datetime(
@@ -125,6 +110,7 @@ def get_activities(after: Optional[str] = None) -> pd.DataFrame:
     params = {
     }
     if after is not None:
+        after = after.isoformat() if isinstance(after, pd.Timestamp) else after
         params['after'] = after
 
     headers = {
@@ -200,12 +186,14 @@ def get_market_clock() -> pd.Series:
     return s
 
 
-def get_market_calendar(start: Optional[str] = None, end: Optional[str] = None):
+def get_market_calendar(start: Optional[Union[pd.Timestamp, str]] = None, end: Optional[Union[pd.Timestamp, str]] = None):
     endpoint = '/v2/calendar'
     params = {}
     if start is not None:
+        start = start.isoformat() if isinstance(start, pd.Timestamp) else start
         params['start'] = start
     if end is not None:
+        end = end.isoformat() if isinstance(end, pd.Timestamp) else end
         params['end'] = end
     headers = {
         'Accept': 'application/json',
@@ -263,17 +251,22 @@ def process_bars(response: requests.Response, latest=False) -> pd.DataFrame:
     return pd.DataFrame(columns=columns)
 
 
-def get_stock_historicals(symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_stock_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v2/stocks/bars'
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
         'timeframe': resolution,
         'adjustment': 'split',
         'feed': 'iex',
+        'limit': 10000,
     }
     if start_date is not None:
+        start_date = start_date.isoformat() if isinstance(
+            start_date, pd.Timestamp) else start_date
         params['start'] = start_date
     if end_date is not None:
+        end_date = end_date.isoformat() if isinstance(
+            end_date, pd.Timestamp) else end_date
         params['end'] = end_date
 
     headers = {
@@ -281,21 +274,79 @@ def get_stock_historicals(symbols: List[str], start_date: Optional[str] = None, 
         'APCA-API-KEY-ID': API_KEY,
         'APCA-API-SECRET-KEY': SECRET_KEY,
     }
-    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
-    df = process_bars(response)
+
+    page_token = None
+    frames = []
+    while True:
+        if page_token is not None:
+            params['page_token'] = page_token
+
+        response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+
+        df = process_bars(response)
+        frames.append(df)
+
+        page_token = response.json().get('next_page_token')
+        if not page_token:
+            break
+    df = pd.concat(frames, ignore_index=True)
     return df.set_index(['date', 'symbol'])
 
 
-def get_crypto_historicals(symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_option_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+    endpoint = '/v1beta1/options/bars'
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        'timeframe': resolution,
+        'limit': 10000,
+    }
+    if start_date is not None:
+        start_date = start_date.isoformat() if isinstance(
+            start_date, pd.Timestamp) else start_date
+        params['start'] = start_date
+    if end_date is not None:
+        end_date = end_date.isoformat() if isinstance(
+            end_date, pd.Timestamp) else end_date
+        params['end'] = end_date
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+
+    page_token = None
+    frames = []
+    while True:
+        if page_token is not None:
+            params['page_token'] = page_token
+
+        response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+
+        df = process_bars(response)
+        frames.append(df)
+
+        page_token = response.json().get('next_page_token')
+        if not page_token:
+            break
+    df = pd.concat(frames, ignore_index=True)
+    return df.set_index(['date', 'symbol'])
+
+
+def get_crypto_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v1beta3/crypto/us/bars'
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
-        # 'symbols': ','.join(['%s/USD' % i.upper() for i in symbols]),
         'timeframe': resolution,
+        'limit': 10000,
     }
     if start_date is not None:
+        start_date = start_date.isoformat() if isinstance(
+            start_date, pd.Timestamp) else start_date
         params['start'] = start_date
     if end_date is not None:
+        end_date = end_date.isoformat() if isinstance(
+            end_date, pd.Timestamp) else end_date
         params['end'] = end_date
 
     headers = {
@@ -304,17 +355,40 @@ def get_crypto_historicals(symbols: List[str], start_date: Optional[str] = None,
         'APCA-API-SECRET-KEY': SECRET_KEY,
     }
 
-    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
-    df = process_bars(response)
-    # df['symbol'] = df['symbol'].str.replace('/USD', '')
+    page_token = None
+    frames = []
+    while True:
+        if page_token is not None:
+            params['page_token'] = page_token
+
+        response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+        df = process_bars(response)
+        frames.append(df)
+
+        page_token = response.json().get('next_page_token')
+        if not page_token:
+            break
+    df = pd.concat(frames, ignore_index=True)
     return df.set_index(['date', 'symbol'])
 
 
-def get_historicals(stock_symbols: List[str], crypto_symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_historicals(
+    stock_symbols: List[str] = [],
+    option_symbols: List[str] = [],
+    crypto_symbols: List[str] = [],
+    start_date: Optional[Union[pd.Timestamp, str]] = None,
+    end_date: Optional[Union[pd.Timestamp, str]] = None,
+    resolution: str = '1D'
+) -> pd.DataFrame:
     dfs = []
     if len(stock_symbols) > 0:
         df = get_stock_historicals(
             stock_symbols, start_date=start_date, end_date=end_date, resolution=resolution)
+        if not df.empty:
+            dfs.append(df)
+    if len(option_symbols) > 0:
+        df = get_option_historicals(
+            option_symbols, start_date=start_date, end_date=end_date, resolution=resolution)
         if not df.empty:
             dfs.append(df)
     if len(crypto_symbols) > 0:
@@ -344,8 +418,33 @@ def asset_info(symbol: str) -> dict:
 
 if __name__ == '__main__':
     # df = get_activities()
-    print(asset_info('MSTY1'))
-    print(asset_info('MSTY'))
+    # print(asset_info('MSTY1'))
+    # print(asset_info('MSTY'))
     # stock_symbol_check('AAPL')
     # stock_symbol_check('AAPL')
     # stock_symbol_check('AAPL')
+
+    # df = get_stock_historicals(
+    #     symbols=['AAPL'],
+    #     # start_date='2025-01-01'
+    #     start_date='1999-01-01',
+    # )
+    # df = get_crypto_historicals(
+    #     symbols=['BTC/USD'],
+    #     # start_date='2025-01-01'
+    #     start_date='1999-01-01'
+    # )
+    # df = get_option_historicals(
+    #     symbols=['CEP250718C00045000'],
+    #     start_date='2025-05-15',
+    # )
+    # df = get_historicals(
+    #     stock_symbols=['AAPL'],
+    #     option_symbols=['CEP250718C00045000'],
+    #     start_date='2025-05-15',
+    # )
+
+    # print(df)
+
+    ac = get_account()
+    print(ac)
