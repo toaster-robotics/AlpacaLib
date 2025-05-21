@@ -373,9 +373,9 @@ def get_crypto_historicals(symbols: List[str], start_date: Optional[Union[pd.Tim
 
 
 def get_historicals(
-    stock_symbols: List[str] = [],
-    option_symbols: List[str] = [],
-    crypto_symbols: List[str] = [],
+    stock_symbols: Optional[List[str]] = [],
+    option_symbols: Optional[List[str]] = [],
+    crypto_symbols: Optional[List[str]] = [],
     start_date: Optional[Union[pd.Timestamp, str]] = None,
     end_date: Optional[Union[pd.Timestamp, str]] = None,
     resolution: str = '1D'
