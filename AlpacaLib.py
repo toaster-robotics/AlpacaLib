@@ -403,6 +403,71 @@ def get_historicals(
     return df
 
 
+def latest_stock_bar(symbols: List[str]) -> pd.DataFrame:
+    endpoint = '/v2/stocks/bars/latest'
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        # 'feed': 'delayed_sip',
+        'feed': 'iex',
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+    data = response.json()['bars']
+
+    df = pd.DataFrame.from_dict(data, orient='index').reset_index()
+    df['t'] = pd.to_datetime(df['t']).dt.tz_convert('America/New_York')
+    df = df.rename(columns={
+        'index': 'symbol',
+        'c': 'close',
+        'h': 'high',
+        'l': 'low',
+        'n': 'trades',
+        'o': 'open',
+        't': 'date',
+        'v': 'volume',
+    })
+    df = df[['date', 'symbol', 'open', 'high',
+             'low', 'close', 'volume', 'trades', 'vw']]
+    return df.set_index(['date', 'symbol'])
+
+
+def latest_crypto_bar(symbols: List[str]) -> pd.DataFrame:
+    endpoint = '/v1beta3/crypto/us/latest/bars'
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+    data = response.json()['bars']
+    # print(data)
+
+    df = pd.DataFrame.from_dict(data, orient='index').reset_index()
+    df['t'] = pd.to_datetime(df['t']).dt.tz_convert('America/New_York')
+    df = df.rename(columns={
+        'index': 'symbol',
+        'c': 'close',
+        'h': 'high',
+        'l': 'low',
+        'n': 'trades',
+        'o': 'open',
+        't': 'date',
+        'v': 'volume',
+    })
+    df = df[['date', 'symbol', 'open', 'high',
+             'low', 'close', 'volume', 'trades', 'vw']]
+    return df.set_index(['date', 'symbol'])
+
+
 def asset_info(symbol: str) -> dict:
     endpoint = '/v2/assets/%s' % symbol.upper()
 
@@ -446,5 +511,11 @@ if __name__ == '__main__':
 
     # print(df)
 
-    ac = get_account()
-    print(ac)
+    # ac = get_account()
+    # print(ac)
+
+    df = latest_stock_bar(['TSLA', 'AAPL'])
+    print(df)
+
+    df = latest_crypto_bar(['BTC/USD', 'USDC/USD'])
+    print(df)
