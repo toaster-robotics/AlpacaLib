@@ -511,7 +511,7 @@ snapshot_rename2 = {
 
 
 def process_snapshots(snapshots: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
-    date = pd.Timestamp.utcnow().tz_convert('America/New_York')
+    date = pd.Timestamp.utcnow().tz_convert('America/New_York').round('s')
     is_option = 'greeks' in next(iter(snapshots.values()))
 
     frames = []
