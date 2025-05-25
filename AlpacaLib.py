@@ -3,7 +3,7 @@ import pandas as pd
 import time
 from dotenv import load_dotenv
 import os
-from typing import Optional, List, TypedDict, Union
+from typing import Optional, List, TypedDict, Union, Dict, Any, Tuple
 load_dotenv()
 
 API_KEY = os.getenv('ALPACA_KEY')
@@ -481,6 +481,160 @@ def asset_info(symbol: str) -> dict:
     return data
 
 
+snapshot_rename1 = {
+    'dailyBar': 'daily_bar',
+    'latestQuote': 'latest_quote',
+    'latestTrade': 'latest_trade',
+    'minuteBar': 'minute_bar',
+    'prevDailyBar': 'prev_bar',
+}
+
+snapshot_rename2 = {
+    'c': 'close',
+    'h': 'high',
+    'l': 'low',
+    'n': 'trades',
+    'o': 'open',
+    't': 'date',
+    'v': 'volume',
+    'ap': 'ask_price',
+    'as': 'ask_size',
+    'ax': 'ask_exchange',
+    'bp': 'bid_price',
+    'bs': 'bid_size',
+    'bx': 'bid_exchange',
+    'p': 'price',
+    's': 'size',
+    'x': 'exchange',
+    'i': 'trade_id',
+}
+
+
+def process_snapshots(snapshots: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+    date = pd.Timestamp.utcnow().tz_convert('America/New_York')
+    is_option = 'greeks' in next(iter(snapshots.values()))
+
+    frames = []
+    for symbol in snapshots.keys():
+        snapshot = snapshots[symbol]
+        c = ','.join(snapshot['latestQuote'].pop('c', ''))
+        snapshot['latestQuote']['condition'] = c
+        c = ','.join(snapshot['latestTrade'].pop('c', ''))
+        snapshot['latestTrade']['condition'] = c
+
+        if is_option:
+            snapshot['greeks']['implied_vol'] = snapshot.pop(
+                'impliedVolatility')
+
+        frame = pd.json_normalize(snapshot, sep='.').rename(
+            columns=lambda x: tuple(x.split('.')))
+        frame.columns = frame.columns = pd.MultiIndex.from_tuples(
+            frame.columns)
+        frame['symbol'] = symbol
+        frame['date'] = date
+        frames.append(frame)
+
+    df = pd.concat(frames)
+    df.columns = pd.MultiIndex.from_tuples([
+        (snapshot_rename1.get(grp, grp), snapshot_rename2.get(sub, sub)) for grp, sub in df.columns
+    ])
+    df = df.set_index(['date', 'symbol'])
+    df['daily_bar', 'date'] = pd.to_datetime(
+        df['daily_bar', 'date']).dt.tz_convert('America/New_York')
+
+    df['latest_quote', 'date'] = pd.to_datetime(
+        df['latest_quote', 'date']).dt.tz_convert('America/New_York')
+    df['latest_trade', 'date'] = pd.to_datetime(
+        df['latest_trade', 'date']).dt.tz_convert('America/New_York')
+    df['minute_bar', 'date'] = pd.to_datetime(
+        df['minute_bar', 'date']).dt.tz_convert('America/New_York')
+    df['prev_bar', 'date'] = pd.to_datetime(
+        df['prev_bar', 'date']).dt.tz_convert('America/New_York')
+
+    return df
+
+
+def get_stock_snapshots(symbols: List[str]) -> pd.DataFrame:
+    endpoint = '/v2/stocks/snapshots'
+
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        # 'feed': 'sip',
+        'feed': 'iex',
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+    data = response.json()
+    df = process_snapshots(data)
+    df = df.drop(columns=[
+        ('latest_quote', 'ask_exchange'),
+        ('latest_quote', 'bid_exchange'),
+        ('latest_quote', 'z'),
+        ('latest_trade', 'exchange'),
+        ('latest_trade', 'trade_id'),
+        ('latest_trade', 'z'),
+    ])
+    return df
+
+
+def get_option_snapshots(symbols: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    endpoint = '/v1beta1/options/snapshots'
+
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        # 'feed': 'opra',
+        'feed': 'indicative',
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+    data = response.json()
+    df = process_snapshots(data['snapshots'])
+
+    greeks = df['greeks']
+    df = df.loc[:, ~df.columns.get_level_values(0).isin(['greeks'])]
+    df = df.drop(columns=[
+        ('latest_quote', 'ask_exchange'),
+        ('latest_quote', 'bid_exchange'),
+        ('latest_trade', 'exchange'),
+    ])
+
+    return df, greeks
+
+
+def get_crypto_snapshots(symbols: List[str]) -> pd.DataFrame:
+    endpoint = '/v1beta3/crypto/us/snapshots'
+
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+    data = response.json()
+    df = process_snapshots(data['snapshots'])
+    df[('latest_trade', 'condition')] = df[('latest_trade', 'tks')]
+    df = df.drop(columns=[
+        ('latest_trade', 'trade_id'),
+        ('latest_trade', 'tks'),
+    ])
+    # print(df.dtypes)
+    return df
+
+
 if __name__ == '__main__':
     # df = get_activities()
     # print(asset_info('MSTY1'))
@@ -514,8 +668,19 @@ if __name__ == '__main__':
     # ac = get_account()
     # print(ac)
 
-    df = latest_stock_bar(['TSLA', 'AAPL'])
-    print(df)
+    # df = latest_stock_bar(['TSLA', 'AAPL'])
+    # print(df)
 
-    df = latest_crypto_bar(['BTC/USD', 'USDC/USD'])
-    print(df)
+    # df = latest_crypto_bar(['BTC/USD', 'USDC/USD'])
+    # print(df)
+
+    symbols = ['AAPL', 'TSLA']
+    df = get_stock_snapshots(symbols)
+    # print(df)
+
+    symbols = ['CEP250718C00045000', 'CEP250718C00050000']
+    df, greeks = get_option_snapshots(symbols)
+    # print(df)
+
+    symbols = ['BTC/USD', 'USDC/USD']
+    df = get_crypto_snapshots(symbols)
