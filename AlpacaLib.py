@@ -599,9 +599,12 @@ def get_option_snapshots(symbols: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame
     response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
     data = response.json()
     df = process_snapshots(data['snapshots'])
+    if 'greeks' in df.columns:
+        greeks = df['greeks']
+        df = df.loc[:, ~df.columns.get_level_values(0).isin(['greeks'])]
+    else:
+        greeks = pd.DataFrame()
 
-    greeks = df['greeks']
-    df = df.loc[:, ~df.columns.get_level_values(0).isin(['greeks'])]
     df = df.drop(columns=[
         ('latest_quote', 'ask_exchange'),
         ('latest_quote', 'bid_exchange'),
@@ -653,10 +656,12 @@ if __name__ == '__main__':
     #     # start_date='2025-01-01'
     #     start_date='1999-01-01'
     # )
-    # df = get_option_historicals(
-    #     symbols=['CEP250718C00045000'],
-    #     start_date='2025-05-15',
-    # )
+    df = get_option_historicals(
+        symbols=['CEP250718C00075000'],
+        start_date='2025-05-23',
+        resolution='1Min'
+    )
+    print(df)
     # df = get_historicals(
     #     stock_symbols=['AAPL'],
     #     option_symbols=['CEP250718C00045000'],
@@ -674,13 +679,15 @@ if __name__ == '__main__':
     # df = latest_crypto_bar(['BTC/USD', 'USDC/USD'])
     # print(df)
 
-    symbols = ['AAPL', 'TSLA']
-    df = get_stock_snapshots(symbols)
-    # print(df)
+    # symbols = ['AAPL', 'TSLA']
+    # df = get_stock_snapshots(symbols)
+    # # print(df)
 
     symbols = ['CEP250718C00045000', 'CEP250718C00050000']
+    symbols = ['CEP250718C00075000']
     df, greeks = get_option_snapshots(symbols)
-    # print(df)
+    print(df['minute_bar'])
+    print(df['minute_bar'])
 
-    symbols = ['BTC/USD', 'USDC/USD']
-    df = get_crypto_snapshots(symbols)
+    # symbols = ['BTC/USD', 'USDC/USD']
+    # df = get_crypto_snapshots(symbols)
