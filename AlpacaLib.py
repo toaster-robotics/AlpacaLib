@@ -166,7 +166,24 @@ def get_activities(after: Optional[Union[pd.Timestamp, str]] = None) -> pd.DataF
     df[['price', 'qty', 'leaves_qty', 'cum_qty', 'swap_rate', 'net_amount', 'per_share_amount']] = df[[
         'price', 'qty', 'leaves_qty', 'cum_qty', 'swap_rate', 'net_amount', 'per_share_amount']].astype(float)
 
-    return df
+    mask = df['type'].isin(['fill', 'partial_fill'])
+    df_fills = df[mask].copy().reset_index(drop=True)
+    df_rest = df[~mask].copy()
+
+    def normalize_group_time(group):
+        group['transaction_time'] = group['transaction_time'].min()
+        return group
+
+    df_fills = df_fills.groupby('order_id', group_keys=True).apply(
+        normalize_group_time, include_groups=False)
+    df_fills = df_fills.reset_index()
+    df_fills = df_fills[df_rest.columns]
+
+    df_combined = pd.concat([df_rest, df_fills], ignore_index=True)
+    df_combined = df_combined.sort_values(
+        by=['transaction_time', 'cum_qty']).reset_index(drop=True)
+
+    return df_combined
 
 
 def get_market_clock() -> pd.Series:
@@ -639,7 +656,8 @@ def get_crypto_snapshots(symbols: List[str]) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
-    # df = get_activities()
+    df = get_activities()
+    quit()
     # print(asset_info('MSTY1'))
     # print(asset_info('MSTY'))
     # stock_symbol_check('AAPL')
