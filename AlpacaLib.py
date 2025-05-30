@@ -12,6 +12,9 @@ SECRET_KEY = os.getenv('ALPACA_SECRET')
 BASE_TRADE_URL = 'https://api.alpaca.markets'
 BASE_DATA_URL = 'https://data.alpaca.markets'
 
+STOCK_FEED = 'iex'
+OPTION_FEED = 'indicative'
+
 
 class Account(TypedDict):
     account_number: str
@@ -274,7 +277,7 @@ def get_stock_historicals(symbols: List[str], start_date: Optional[Union[pd.Time
         'symbols': ','.join([i.upper() for i in symbols]),
         'timeframe': resolution,
         'adjustment': 'split',
-        'feed': 'iex',
+        'feed': STOCK_FEED,
         'limit': 10000,
     }
     if start_date is not None:
@@ -425,7 +428,7 @@ def latest_stock_bar(symbols: List[str]) -> pd.DataFrame:
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
         # 'feed': 'delayed_sip',
-        'feed': 'iex',
+        'feed': STOCK_FEED,
     }
 
     headers = {
@@ -577,7 +580,7 @@ def get_stock_snapshots(symbols: List[str]) -> pd.DataFrame:
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
         # 'feed': 'sip',
-        'feed': 'iex',
+        'feed': STOCK_FEED,
     }
 
     headers = {
@@ -605,7 +608,7 @@ def get_option_snapshots(symbols: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
         # 'feed': 'opra',
-        'feed': 'indicative',
+        'feed': OPTION_FEED,
     }
 
     headers = {
