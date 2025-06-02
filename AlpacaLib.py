@@ -15,6 +15,9 @@ BASE_DATA_URL = 'https://data.alpaca.markets'
 STOCK_FEED = 'iex'
 OPTION_FEED = 'indicative'
 
+# STOCK_FEED = 'sip'
+# OPTION_FEED = 'opra'
+
 
 class Account(TypedDict):
     account_number: str
@@ -271,7 +274,7 @@ def process_bars(response: requests.Response, latest=False) -> pd.DataFrame:
     return pd.DataFrame(columns=columns)
 
 
-def get_stock_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_stock_historical_bars(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v2/stocks/bars'
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
@@ -313,7 +316,7 @@ def get_stock_historicals(symbols: List[str], start_date: Optional[Union[pd.Time
     return df.set_index(['date', 'symbol'])
 
 
-def get_option_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_option_historical_bars(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v1beta1/options/bars'
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
@@ -353,7 +356,7 @@ def get_option_historicals(symbols: List[str], start_date: Optional[Union[pd.Tim
     return df.set_index(['date', 'symbol'])
 
 
-def get_crypto_historicals(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+def get_crypto_historical_bars(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
     endpoint = '/v1beta3/crypto/us/bars'
     params = {
         'symbols': ','.join([i.upper() for i in symbols]),
@@ -392,7 +395,7 @@ def get_crypto_historicals(symbols: List[str], start_date: Optional[Union[pd.Tim
     return df.set_index(['date', 'symbol'])
 
 
-def get_historicals(
+def get_historical_bars(
     stock_symbols: List[str] = [],
     option_symbols: List[str] = [],
     crypto_symbols: List[str] = [],
@@ -402,17 +405,17 @@ def get_historicals(
 ) -> pd.DataFrame:
     dfs = []
     if len(stock_symbols) > 0:
-        df = get_stock_historicals(
+        df = get_stock_historical_bars(
             stock_symbols, start_date=start_date, end_date=end_date, resolution=resolution)
         if not df.empty:
             dfs.append(df)
     if len(option_symbols) > 0:
-        df = get_option_historicals(
+        df = get_option_historical_bars(
             option_symbols, start_date=start_date, end_date=end_date, resolution=resolution)
         if not df.empty:
             dfs.append(df)
     if len(crypto_symbols) > 0:
-        df = get_crypto_historicals(
+        df = get_crypto_historical_bars(
             crypto_symbols, start_date=start_date, end_date=end_date, resolution=resolution)
         if not df.empty:
             dfs.append(df)
@@ -421,6 +424,146 @@ def get_historicals(
     else:
         df = dfs[0]
     return df
+
+
+def get_stock_historical_quotes(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+    endpoint = '/v2/stocks/quotes'
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        'feed': STOCK_FEED,
+        'limit': 10000,
+    }
+    if start_date is not None:
+        start_date = start_date.isoformat() if isinstance(
+            start_date, pd.Timestamp) else start_date
+        params['start'] = start_date
+    if end_date is not None:
+        end_date = end_date.isoformat() if isinstance(
+            end_date, pd.Timestamp) else end_date
+        params['end'] = end_date
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+
+    page_token = None
+    frames = []
+    while True:
+        if page_token is not None:
+            params['page_token'] = page_token
+
+        response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+        data = response.json()
+
+        for symbol in data['quotes'].keys():
+            frame = pd.DataFrame(data['quotes'][symbol])
+            frame['symbol'] = symbol
+            frames.append(frame)
+
+        page_token = response.json().get('next_page_token')
+        if not page_token:
+            break
+    df = pd.concat(frames, ignore_index=True)
+    # df.to_pickle('temp.pkl')
+    # df: pd.DataFrame = pd.read_pickle('temp.pkl')
+
+    df['c'] = df['c'].str.join(',')
+    df['t'] = pd.to_datetime(
+        df['t']).dt.tz_convert('America/New_York')
+
+    df = df.rename(columns={
+        't': 'date',
+        'c': 'condition',
+        'ap': 'ask_price',
+        'as': 'ask_size',
+        'ax': 'ask_exchange',
+        'bp': 'bid_price',
+        'bs': 'bid_size',
+        'bx': 'bid_exchange',
+    })
+    df = df.drop(columns='z')
+    if all(x is not None for x in [start_date, end_date, resolution]):
+        dates = pd.date_range(start_date, end_date, freq=resolution)
+        resampled = []
+        for symbol, group in df.groupby('symbol'):
+            group = group.set_index('date')
+            group = group.sort_index()
+            out = group.reindex(dates, method='ffill')
+            out = out.bfill(limit=1)
+            out['date'] = dates
+            out['symbol'] = symbol
+            resampled.append(out)
+        df = pd.concat(resampled, ignore_index=True)
+    return df.set_index(['date', 'symbol'])
+
+
+def get_crypto_historical_quotes(symbols: List[str], start_date: Optional[Union[pd.Timestamp, str]] = None, end_date: Optional[Union[pd.Timestamp, str]] = None, resolution: str = '1D') -> pd.DataFrame:
+    endpoint = '/v1beta3/crypto/us/quotes'
+    params = {
+        'symbols': ','.join([i.upper() for i in symbols]),
+        'limit': 10000,
+    }
+    if start_date is not None:
+        start_date = start_date.isoformat() if isinstance(
+            start_date, pd.Timestamp) else start_date
+        params['start'] = start_date
+    if end_date is not None:
+        end_date = end_date.isoformat() if isinstance(
+            end_date, pd.Timestamp) else end_date
+        params['end'] = end_date
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+
+    page_token = None
+    frames = []
+    while True:
+        if page_token is not None:
+            params['page_token'] = page_token
+
+        response = fetch_url(BASE_DATA_URL + endpoint, params, headers)
+        data = response.json()
+
+        for symbol in data['quotes'].keys():
+            frame = pd.DataFrame(data['quotes'][symbol])
+            frame['symbol'] = symbol
+            frames.append(frame)
+
+        page_token = response.json().get('next_page_token')
+        if not page_token:
+            break
+    df = pd.concat(frames, ignore_index=True)
+    # df.to_pickle('temp.pkl')
+    # df: pd.DataFrame = pd.read_pickle('temp.pkl')
+
+    df['t'] = pd.to_datetime(
+        df['t']).dt.tz_convert('America/New_York')
+
+    df = df.rename(columns={
+        't': 'date',
+        'ap': 'ask_price',
+        'as': 'ask_size',
+        'bp': 'bid_price',
+        'bs': 'bid_size',
+    })
+    if all(x is not None for x in [start_date, end_date, resolution]):
+        dates = pd.date_range(start_date, end_date, freq=resolution)
+        resampled = []
+        for symbol, group in df.groupby('symbol'):
+            group = group.set_index('date')
+            group = group.sort_index()
+            out = group.reindex(dates, method='ffill')
+            out = out.bfill(limit=1)
+            out['date'] = dates
+            out['symbol'] = symbol
+            resampled.append(out)
+        df = pd.concat(resampled, ignore_index=True)
+    return df.set_index(['date', 'symbol'])
 
 
 def latest_stock_bar(symbols: List[str]) -> pd.DataFrame:
@@ -659,8 +802,8 @@ def get_crypto_snapshots(symbols: List[str]) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
-    df = get_activities()
-    quit()
+    # df = get_activities()
+    # quit()
     # print(asset_info('MSTY1'))
     # print(asset_info('MSTY'))
     # stock_symbol_check('AAPL')
@@ -677,12 +820,12 @@ if __name__ == '__main__':
     #     # start_date='2025-01-01'
     #     start_date='1999-01-01'
     # )
-    df = get_option_historicals(
-        symbols=['CEP250718C00075000'],
-        start_date='2025-05-23',
-        resolution='1Min'
-    )
-    print(df)
+    # df = get_option_historicals(
+    #     symbols=['CEP250718C00075000'],
+    #     start_date='2025-05-23',
+    #     resolution='1Min'
+    # )
+    # print(df)
     # df = get_historicals(
     #     stock_symbols=['AAPL'],
     #     option_symbols=['CEP250718C00045000'],
@@ -701,14 +844,57 @@ if __name__ == '__main__':
     # print(df)
 
     # symbols = ['AAPL', 'TSLA']
-    # df = get_stock_snapshots(symbols)
-    # # print(df)
 
-    symbols = ['CEP250718C00045000', 'CEP250718C00050000']
-    symbols = ['CEP250718C00075000']
-    df, greeks = get_option_snapshots(symbols)
-    print(df['minute_bar'])
-    print(df['minute_bar'])
+    # start_date = pd.Timestamp(
+    #     '2025-05-30 09:30').tz_localize('America/New_York')
+    # end_date = pd.Timestamp(
+    #     '2025-05-30 09:35').tz_localize('America/New_York')
+    # df = get_stock_historical_quotes(
+    #     symbols=symbols,
+    #     start_date=start_date,
+    #     end_date=end_date,
+    #     # resolution='1m'
+    #     resolution='60s'
+    # )
+
+    # print(df)
+
+    symbols = ['BTC/USD', 'USDT/USD']
+    start_date = pd.Timestamp(
+        '2025-05-30 09:30').tz_localize('America/New_York')
+    end_date = pd.Timestamp(
+        '2025-05-30 09:35').tz_localize('America/New_York')
+    df = get_crypto_historical_quotes(
+        symbols=symbols,
+        start_date=start_date,
+        end_date=end_date,
+        # resolution='1m'
+        resolution='60s'
+    )
+
+    print(df)
+
+    # print(df.columns)
+    # print(df['latest_quote'])
+
+    # symbols = ['AAPL', 'TSLA']
+    # df = get_stock_snapshots(symbols)
+    # print(df)
+    # # print(df.columns)
+    # print(df['latest_quote'])
+
+    # symbols = ['CEP250718C00045000', 'CEP250718C00050000']
+    # symbols = ['CEP250718C00075000']
+    # df, greeks = get_option_snapshots(symbols)
+    # print(df['minute_bar'])
+    # print(df['minute_bar'])
 
     # symbols = ['BTC/USD', 'USDC/USD']
     # df = get_crypto_snapshots(symbols)
+
+    # symbols = ['AAPL', 'TSLA']
+    # df = get_stock_historicals(
+    #     symbols=['AAPL'],
+    #     start_date='2025-05-15'
+    # )
+    # print(df)
