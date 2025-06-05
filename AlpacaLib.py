@@ -644,6 +644,19 @@ def asset_info(symbol: str) -> dict:
     return data
 
 
+def option_info(symbol: str) -> dict:
+    endpoint = '/v2/options/contracts/%s' % symbol.upper()
+
+    headers = {
+        'Accept': 'application/json',
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': SECRET_KEY,
+    }
+    response = requests.get(BASE_TRADE_URL + endpoint, headers=headers)
+    data = response.json()
+    return data
+
+
 snapshot_rename1 = {
     'dailyBar': 'daily_bar',
     'latestQuote': 'latest_quote',
@@ -802,6 +815,10 @@ def get_crypto_snapshots(symbols: List[str]) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
+    option_info('TSLA250815C00420000')
+    option_info('TSLA250515C00420000')
+    option_info('TSLA250516C00420000')
+
     # df = get_activities()
     # quit()
     # print(asset_info('MSTY1'))
@@ -859,20 +876,20 @@ if __name__ == '__main__':
 
     # print(df)
 
-    symbols = ['BTC/USD', 'USDT/USD']
-    start_date = pd.Timestamp(
-        '2025-05-30 09:30').tz_localize('America/New_York')
-    end_date = pd.Timestamp(
-        '2025-05-30 09:35').tz_localize('America/New_York')
-    df = get_crypto_historical_quotes(
-        symbols=symbols,
-        start_date=start_date,
-        end_date=end_date,
-        # resolution='1m'
-        resolution='60s'
-    )
+    # symbols = ['BTC/USD', 'USDT/USD']
+    # start_date = pd.Timestamp(
+    #     '2025-05-30 09:30').tz_localize('America/New_York')
+    # end_date = pd.Timestamp(
+    #     '2025-05-30 09:35').tz_localize('America/New_York')
+    # df = get_crypto_historical_quotes(
+    #     symbols=symbols,
+    #     start_date=start_date,
+    #     end_date=end_date,
+    #     # resolution='1m'
+    #     resolution='60s'
+    # )
 
-    print(df)
+    # print(df)
 
     # print(df.columns)
     # print(df['latest_quote'])
